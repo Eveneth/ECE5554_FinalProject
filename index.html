@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en"><head>  
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta charset="utf-8">
+  <title>Computer Vision Class Project
+  | ECE, Virginia Tech | Fall 2015: ECE 5554/4984</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+<!-- Le styles -->  
+  <link href="css/bootstrap.css" rel="stylesheet">
+<style>
+body {
+padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+}
+.vis {
+color: #3366CC;
+}
+.data {
+color: #FF9900;
+}
+</style>
+  
+<link href="css/bootstrap-responsive.min.css" rel="stylesheet">
+
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]}
+});
+</script>
+
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({ TeX: { equationNumbers: {autoNumber: "AMS"} } });
+</script>
+
+<script type="text/javascript" async
+  src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-MML-AM_CHTML">
+</script>
+
+<!-- HTML5 shim, for IE6-8 support of HTML5 elements --><!--[if lt IE 9]>
+<script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+<![endif]-->
+</head>
+
+<body>
+<div class="container">
+<div class="page-header">
+
+<!-- Title and Name --> 
+<h1>Inference with Neural Networks</h1> 
+<span style="font-size: 20px; line-height: 1.5em;"><strong>Jason Granstedt, Bijaya Adhikari, and William Doan</strong></span><br>
+<span style="font-size: 18px; line-height: 1.5em;">Fall 2016 ECE 5554/4984 Computer Vision: Class Project</span><br>
+<span style="font-size: 18px; line-height: 1.5em;">Virginia Tech</span>
+<hr>
+
+<!-- Goal -->
+<h3>Abstract</h3>
+<p>Inference on a probabilistic graphical model (PGM) is a challenging task which has been shown to be NP-Complete. Even approximate inference on an arbitrary PGM is not trivial as approximate inference algorithms are not guaranteed to converge to the global optimum: convergence can occur at a local optimum resulting in a sub-optimal solution. In this project, we determine that given offline time we can estimate approximate inference for every variable in a PGM in a constant time forward pass.</p>
+
+<p>Recent studies show that deep learning is well suited to estimate intractable problems. In this project, we propose training an end-to-end deep neural network to infer states of graphical models with a specified structure and perform estimates of approximate inference on graphical models with arbitrary factors in a single forward pass. By doing so, we aim to combine graphical models and deep learning which has been of much research interest in recent years.</p>
+
+<br><br>
+<!-- Main Illustrative Figure --> 
+<figure>
+<div style="text-align: center;">
+<img style="height: 250px;" alt="" src="TeaserImage.png">
+<figcaption> <a href="http://www.opendeep.org/v0.0.5/docs/tutorial-first-steps">Image credit</a> </figcaption>
+</div>
+</figure>
+
+<br><br>
+<!-- Introduction -->
+<h3>Introduction</h3>
+<p>Probabilistic graphical models show a significant amount of promise in modeling the complex probability distributions seen in real-world problems, such as computational biology and natural language processing. However, many of the current algorithms for calculating inference are infeasible for the datasets usually encountered. Even approximate inference within absolute or relative error is NP-hard on a general graphical model <a href="http://ai.stanford.edu/users/koller/papers.cgi?entry=Koller+Friedman:09">(Koller & Friedman 2009)</a>. However, advancements in the field of deep learning have shown significant improvements in formerly intractable problems. Combining the power deep neural networks with the rich class of distributions representable by PGMs has a great deal of potential. Previous integration of neural networks and graphical models has been done before, but it was limited to appending a PGM to the end of a deep network to model dependencies <a href="http://cs.stanford.edu/people/danqi/papers/emnlp2014.pdf">(Chen et al. EMNLP 2014)</a>. We propose to design and implement an end-to-end neural network that learns a particular graphical model and derives a more efficient inference function.</p>
+
+<p>Our neural network takes the CPDs corresponding to a MRF of known structure as inputs and outputs an estimate of the network's marginals. Since CPDs are traditionally difficult to acquire, we also train another neural network to learn them for a given predefined structure. The neural network model takes some time to train, but when completed is able to calculate the inference for a given graphical model state in a single forward pass. The most expensive part of the operation is generating the CPDs necessary to train the neural network.</p>
+
+<p>There are two noteworthy limitations to this approach. First, a graphical model must be constructed and inference passing performed to generate the necessary data for training the neural network. If we want exact inference updates to train our neural network, we will have to run exact inference on a graphical model. This is intractable for larger networks, so we consider a small graphical model first. Once we demonstrate that we are successful in modeling this graph, we introduce our method for extracting CPDs from an input and demonstrate our approach's effectiveness.</p>
+
+<p>The second limitation is that this neural network will not be able to be altered once trained. Although it can be expensive to add another node to a graphical network, it is possible. A neural network, on the other hand, is a static structure once constructed. Thus, if it becomes necessary to alter the graphical model once the neural network is trained, an entirely new corpus of data must be generated and the training process redone. This limitation may also apply to the inquiry types that the network is capable of, although future research may reveal that we are able to circumvent the incomplete observation issue by including missing data examples.</p>
+
+<p>In summary, we present a method to generate a neural network that can answer an inference query for a graphical model much more quickly than standard inference algorithms. The tradeoffs are the inflexibility of the resulting model and possible inaccuracies if approximate inference methods must be used to generate the training data.</p>
+<br><br>
+<!-- Approach -->
+<h3>Approach</h3>
+
+In this project, we are interested in solving marginal inference problems by training neural networks. Let $\mathbf{X} = (X_1, X_2,...,X_N)$ be set of variables in a graphical model $\mathbf{G}$. Marginal inference queries are in form of $P(\mathbf{Y}|\mathbf{Z} = z)$, where both $\mathbf{Y}$ and $\mathbf{Z}$ are subset of $\mathbf{X}$. Our goal is to optimize the running time of answering such queries with increased efficiency given that we have enough offline time to train our neural network. The next two subsections formalize our problems and propose our solutions.
+
+<h4> Problem 1 </h4>
+
+<p>Solutions to marginal inference queries are essentially a set of probability distributions which comprises unary distributions for each variable. Although distributions for factors are also calculated, they are not typically provided as answers to marginal inference queries. Given a probabilistic graphical model $G$, set of variables $X$, set of factors $\Phi$ and a marginal inference query $q$, let $Q_q(x)$ be the true marginals of variables in $x  \in X$ and $P_q(x)$ be inferred marginals. Then our problem can be formally stated as:</p>
+
+<p>For each  $x \in \mathbf{X}$, given $\mathbf{G}$, $q$, $\Phi$,and $Q$, find $P_q^*(x)$ such that</p>
+
+\[P_q^*(x) = \mathbf{argmin}_{P_q(x)} D(P_q(x), Q_q(x))\]
+
+<p>Where $D$ is some measure of distance between probability distributions $P_q(x)$ and $Q_q(x)$. In this project, we use Hellinger's distance \cite{hellinger1909neue} to measure the distance between two distributions. Therefore, $D(P_q, Q_q)$ is defined as</p>
+\begin{equation}
+D(P_q(x), Q_q(x)) = \frac{1}{\sqrt{2}}\left |\left| \sqrt{P_q(x)} - \sqrt{Q_q(x)} \right |\right|_2 
+\end{equation}
+Now let $S$ be set of states of variable $x$, So equivalently,
+\begin{equation}
+\label{hellinger}
+D(P_q(x), Q_q(x)) = \frac{1}{\sqrt{2}}\sqrt{\sum_{s \in S}{\left( \sqrt{P_q(s)} - \sqrt{Q_q(s)} \right) }^2}
+\end{equation}
+
+<p>To solve Problem 1, we propose training neural network via gradient descent. Once the network parameters $w$ are learned for our network $F$, inference amounts to single forward pass in $F$.</p>
+\begin{equation}
+P_q(\mathbf{X}) = F(w,q,\Phi,\mathbf{G})
+\end{equation}
+
+<p>To train a neural network we use squared error to minimize Equation \ref{hellinger}. We provide justification for  minimizing squared distance by showing that it is related to Hellinger's distance in the following lemma.</p>
+
+<p><b>Lemma: </b><i>Minimizing the squared distance between $P_q(x)$  and $Q_q(x)$ for each $x \in \mathbf{X}$ minimizes Hellinger's distance between $P_q(x)$ and $Q_q(x)$.</i></p>
+
+<i>Proof: </i>Let $S$ be set of state variables $x \in \mathbf{X}$ can take on. Now, By definition, we have
+\begin{align*}
+\mathbf{argmin}_{P_q(x)} D(P_q(x), Q_q(x)) = \mathbf{argmin}_{P_q(x)}\frac{1}{\sqrt{2}}\sqrt{\sum_{s \in S}{\left( \sqrt{P_q(s)} - \sqrt{Q_q(s)} \right) }^2}
+\end{align*}
+Removing the constant factor and noting that square root is monotonic for positive real numbers,
+\begin{align*}
+\mathbf{argmin}_{P_q(x)} D(P_q(x), Q_q(x)) = \mathbf{argmin}_{P_q(x)}\sum_{s \in S}{\left( \sqrt{P_q(s)} - \sqrt{Q_q(s)} \right) }^2
+\end{align*}
+We note that $Q_q(s)$ is fixed for all $s \in S$ and $Q_q(x)$ satisfies the probability constraint $\sum_{s \in S}Q_q(s) = 1$ for each data . Therefore, states in $P_q(x)$ could be assumed to be independent for an optimization task. Therefore we get, 
+\begin{align}
+\label{loss}
+\mathbf{argmin}_{P_q(x)} D(P_q(x), Q_q(x)) = \mathbf{argmin}_{P_q(x)}\forall_{s \in S}{\left( \sqrt{P_q(s)} - \sqrt{Q_q(s)} \right) }^2
+\end{align}
+
+<h4>Problem 2</h4>
+<p>We extend Problem 1 by reformulating it into a more general framework that does not require the CPDs as input, but rather that directly performs MAP inference  given raw data. This problem has applications in fields such as image processing and natural language processing,</p>
+
+<p>To solve this problem, we propose training two independent neural networks. The first network takes the raw data as input and learns potentials (CPDs). Since we are assuming the Markov network structure is consistent for the inputs we are considering, we can specify a neural network that takes the raw input and learns the CPDs. This neural network is trained by running an inference algorithm over several different inputs to compute a list of CPDs. The input is treated as the training data, while the computed CPDs serve as the target. Choosing whether to use an exact or approximate inference algorithm for generating the training data will cause the same tradeoffs observed in a graphical model to apply to the generated neural network. Precisely, exact inference will produce the most accurate results but is intractable, while approximate inference algorithms will decrease the data generation time significantly but will result in a less accurate neural network.</p>
+
+<p>The second network takes potentials of a Markov network as input and performs marginal inference. Then, it takes the most likely states for each variable as a MAP state. Once both networks are trained, MAP inference amounts to single forward pass via the first neural network to learn the CPDs and then a single forward pass via second neural network to learn the marginals and taking most likely states for each variable.</p>
+
+<br><br>
+<!-- Results -->
+<h3>Experiments and results</h3>
+<p>Our first experiment included both a proof of concept and a comparison between training the neural network with exact and approximate data. We chose to use the structure of a simple model found in Figure 1a. We generated CPDs randomly to create the necessary data and used belief propagation to compute the marginals. We then trained a neural network with the inputs of the factors representing each node. The training target of the network was the marginal probabilties obtained from belief propagation for each variable.</p>
+
+<p>We then added an edge to the simple model, as shown in Figure 1b. We generated exact data for Figure 1a and approximate data using loopy belief propagation for Figure 1b . The results of these experiments are included in Table 1. We used a python implementation of graphical models by Almero Gouws <a href="https://scholar.sun.ac.za/bitstream/handle/10019.1/4147/gouws_python_2010.pdf?sequence=1"> (link) </a> to calculate inference for both exact and approximate cases. While using exact inference results in a slightly more accurate model, it takes significantly more time to train. The results are also surprisingly accurate given that we are using a neural network with only a single hidden layer to perform inference.</p>
+
+<!-- Main Illustrative Figure --> 
+<br><br>
+<figure>
+<div style="text-align: center;">
+<img style="height: 200px;" alt="" src="factorgraphs.JPG">
+<figcaption>Figure 1: Factor graphs used for the experiments. The loopy factor graph was constructed from the original factor graph by placing an additional edge with a corresponding factor between <b>X</b>$_{\text{1}}$ and <b>X</b>$_{\text{2}}$. The second factor graph is loopy because <b>f</b>$_{\text{2}}$ and <b>f</b>$_{\text{4}}$ are not merged and have distinct values.</figcaption>
+</div>
+</figure>
+<br><br>
+
+<table class="table table-bordered" style="width:500px">
+<caption>Table 1: Results for the first experiment</caption>
+	<tr>
+		<th> Method Used </th>
+		<th align="center"> Accuracy </th>
+		<th align="center"> Execution Time(s) </th>
+		<th align="center"> Efficiency </th>
+	</tr>
+	<tr>
+		<td> BP-NonLoopy </td>
+		<td align="center"> <b>1.0</b> </td>
+		<td align="center"> .00332 </td>
+		<td align="center"> 301.2 </td>
+	</tr>
+	<tr>
+		<td> NN-NonLoopy </td>
+		<td align="center">.984 </td>
+		<td align="center"> <b>.0018</b> </td>
+		<td align="center"> <b>546.6</b> </td>
+	</tr>
+	<tr>
+		<td> BP-Loopy </td>
+		<td align="center"> <b>1.0</b> </td>
+		<td align="center"> .00792 </td>
+		<td align="center"> 126.26 </td>
+	</tr>
+	<tr>
+		<td> NN-Loopy BP </td>
+		<td align="center"> .955 </td>
+		<td align="center"> <b>.0018</b> </td>
+		<td align="center"> <b>530.55</b> </td>
+	</tr>
+</table>
+<br><br>
+
+<p>We define efficiency here as the accuracy divided by the computation time. Accuracy is measured on a zero to one scale. As expected, our neural network approach sacrifices a small amount of accuracy for a large speedup in execution time.</p>
+
+<p>Our second experiment used a more general problem formulation. We chose to perform an image denoising task on a subset of the MNIST dataset. The MNIST dataset is a collection of 70,000 handwritten images of numbers. Each image is comprised of 28 by 28 pixels, giving a total value of 784 pixels per image. The original dataset is in grayscale, with a range of 0 to 255 for each pixel. For our task, we converted the images to black and white to reduce the computation time needed for generating the training data. We chose the first 10,000 images of the dataset to be our training data for the neural network and the next 2,000 for our test set. We added uniform salt and pepper noise with a 5% chance to flip any pixel in the image.</p>
+
+<p>We independently trained two neural networks for the image denoising task. The first neural network was trained to predict the CPDs of a pairwise Markov random field lattice graph of a noisy image. The second neural network was trained to predict the denoised image. Training for the second neural network was done by inputting the CPDs generated by the first neural network and training the output to achieve a target value of the denoised image. Both neural networks had a single hidden layer. A diagram of the entire system can be found in Figure 2.</p>
+
+<br><br>
+<figure>
+<div style="text-align: center;">
+<img style="height: 300px;" alt="" src="NN1.JPG">
+<figcaption>Figure 2: Structure of Neural Network 1.</figcaption>
+</div>
+</figure>
+<br><br>
+
+<figure>
+<div style="text-align: center;">
+<img style="height: 300px;" alt="" src="NN2.JPG">
+<figcaption>Figure 3: Structure of Neural Network 2.</figcaption>
+</div>
+</figure>
+<br><br>
+
+<p>We also trained an end-to-end neural network for the same task to compare our results to. This neural network was given the noisy image and trained to predict the clean image. To ensure a fair comparison, we specified this neural network with three hidden layers, each of the same size as the corresponding layer in the previous model. A diagram of this neural network can be found in Figure 3. The preliminary results of our experiment can be found in Figure 4. NN-Structure 1 refers to the structure detailed in Figure 2, while NN-Structure 2 refers to the structure detailed in Figure 3.</p>
+
+<br><br>
+<figure>
+<div style="text-align: center;">
+<img style="height: 300px;" alt="" src="IterError.PNG">
+<figcaption>Figure 4: Convergence graph for neural networks. Stage 1 and stage 2 refer to the orange and green networks in Figure 1, respectively. End-to-end refers to the purple neural network trained in Figure 3.</figcaption>
+</div>
+</figure>
+<br><br>
+
+<p>Firstly, the results strongly indicate that given offline time, our presented method is efficient. Our accuracies divided by the time required to perform online computations are significantly higher than classical methods consisting of belief propagation and inference of most likely configurations.</p>
+
+<p>Secondly, the convergence graph shows that the error with respect to both stages of the piecewise neural network converge faster and more optimally with equal iterations compared to a single end-to-end neural network. This means that our method of producing CPDs from input vectors and then isolating the most likely configuration in a mirrored network surpasses the ability of a standalone network to accomplish the identical task.</p>
+
+<br><br>
+<!-- Results -->
+<h3>Qualitative results</h3>
+Below are two qualitative examples of the system, run with different noise levels. Figure 5 shows the denoising process of a MNIST digit with a noise level of 5%, and Figure 6 shows the denoising process of the same digit with a noise level of 20%. This demonstrates that our approach works on the same task with varying input parameters - it is not restricted to the particular noise threshold that the network was trained on.
+<br><br>
+
+<figure>
+<div style="text-align: center;">
+<img style="height: 100px;" alt="" src="5noise.PNG">
+<figcaption> Figure 5: Image denoising process for 5% noise. </figcaption>
+</div>
+</figure>
+<br><br>
+
+<figure>
+<div style="text-align: center;">
+<img style="height: 100px;" alt="" src="20noise.PNG">
+<figcaption> Figure 6: Image denoising process for 20% noise. </figcaption>
+</div>
+<br><br>
+</figure>
+
+
+
+
+  <hr>
+  <footer> 
+  <p>© Jason Granstedt, Bijaya Adhikari, and William Doan</p>
+  </footer>
+</div>
+</div>
+
+<br><br>
+
+</body></html>
